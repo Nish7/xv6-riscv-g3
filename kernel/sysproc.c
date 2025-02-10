@@ -6,6 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+extern struct proc proc[NPROC];
+
 uint64
 sys_exit(void)
 {
@@ -91,3 +93,33 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// report process status
+// list all porcess
+void
+sys_ps(void)
+{
+  static char *states[] = {
+  [UNUSED]   = "unused",
+  [USED]     = "used",
+  [SLEEPING] = "sleep ",
+  [RUNNABLE] = "runble",
+  [RUNNING]  = "run   ",
+  [ZOMBIE]   = "zombie"
+  };
+  struct proc *p;
+  char *state;
+
+  printf("PID\tState\tName\n");
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state == UNUSED)
+      continue;
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+      state = states[p->state];
+    else
+      state = "???";
+    printf("%d\t%s\t%s", p->pid, state, p->name);
+    printf("\n");
+  }
+}
+
