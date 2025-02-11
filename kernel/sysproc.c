@@ -110,29 +110,29 @@ sys_ps(void)
 
   uint64 dst;
   int max;
-  argaddr(0, &dst); // sys_call arg; the user-space pointer
-  argint(1, &max);  // sys_call arg; capacity of the array
+  argaddr(0, &dst);  // sys_call arg; the user-space pointer
+  argint(1, &max);   // sys_call arg; capacity of the array
 
   struct proc *p;
   struct uproc u;
   int count = 0;
 
-  for (p = proc; p < &proc[NPROC] && count < max; p++)
-  {
+  // iterate all processes
+  for (p = proc; p < &proc[NPROC] && count < max; p++) {
     acquire(&p->lock);
-    if (p->state == UNUSED)
-    {
+    if (p->state == UNUSED) {
       release(&p->lock);
       continue;
     }
 
-    if (p->state >= 0 && p->state < NELEM(procstatenames) && procstatenames[p->state])
-    {
+    // copy the process info to user-space
+    if (p->state >= 0 && p->state < NELEM(procstatenames) &&
+        procstatenames[p->state]) {
       u.pid = p->pid;
       u.state = p->state;
       safestrcpy(u.name, p->name, sizeof(u.name));
-      if (copyout(myproc()->pagetable, dst + count * sizeof(u), (char *)&u, sizeof(u)) < 0)
-      {
+      if (copyout(myproc()->pagetable, dst + count * sizeof(u), (char *)&u,
+                  sizeof(u)) < 0) {
         release(&p->lock);
         return -1;
       }
