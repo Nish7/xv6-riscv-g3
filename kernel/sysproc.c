@@ -99,13 +99,14 @@ sys_uptime(void)
 uint64
 sys_ps(void)
 {
-  static char *states[] = {
-      [UNUSED] = "unused",
-      [USED] = "used",
-      [SLEEPING] = "sleep",
-      [RUNNABLE] = "runble",
-      [RUNNING] = "running",
-      [ZOMBIE] = "zombie"};
+  static  char *procstatenames[] = {
+    [UNUSED] = "unused",
+    [USED] = "used",
+    [SLEEPING] = "sleep",
+    [RUNNABLE] = "runble",
+    [RUNNING] = "running",
+    [ZOMBIE] = "zombie"
+  };
 
   uint64 dst;
   int max;
@@ -125,7 +126,7 @@ sys_ps(void)
       continue;
     }
 
-    if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
+    if (p->state >= 0 && p->state < NELEM(procstatenames) && procstatenames[p->state])
     {
       u.pid = p->pid;
       u.state = p->state;
