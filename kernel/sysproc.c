@@ -96,30 +96,50 @@ sys_uptime(void)
 
 // report process status
 // list all porcess
-void
+uint64
 sys_ps(void)
 {
   static char *states[] = {
-  [UNUSED]   = "unused",
-  [USED]     = "used",
-  [SLEEPING] = "sleep ",
-  [RUNNABLE] = "runble",
-  [RUNNING]  = "run   ",
-  [ZOMBIE]   = "zombie"
-  };
+      [UNUSED] = "unused",
+      [USED] = "used",
+      [SLEEPING] = "sleep",
+      [RUNNABLE] = "runble",
+      [RUNNING] = "running",
+      [ZOMBIE] = "zombie"};
+
+  uint64 dst;
+  int max;
+  argaddr(0, &dst); // sys_call arg; the user-space pointer
+  argint(1, &max);  // sys_call arg; capacity of the array
+
   struct proc *p;
-  char *state;
+  struct uproc u;
+  int count = 0;
 
-  printf("PID\tState\tName\n");
-  for(p = proc; p < &proc[NPROC]; p++){
-    if(p->state == UNUSED)
+  for (p = proc; p < &proc[NPROC] && count < max; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == UNUSED)
+    {
+      release(&p->lock);
       continue;
-    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
-      state = states[p->state];
-    else
-      state = "???";
-    printf("%d\t%s\t%s", p->pid, state, p->name);
-    printf("\n");
-  }
-}
+    }
 
+    if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
+    {
+      u.pid = p->pid;
+      u.state = p->state;
+      safestrcpy(u.name, p->name, sizeof(u.name));
+      if (copyout(myproc()->pagetable, dst + count * sizeof(u), (char *)&u, sizeof(u)) < 0)
+      {
+        release(&p->lock);
+        return -1;
+      }
+      count++;
+    }
+
+    release(&p->lock);
+  }
+
+  return count;
+}
