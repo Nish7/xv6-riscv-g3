@@ -38,9 +38,9 @@ int
 main(int argc, char *argv[])
 {
   int i; 
-
-  if(strcmp(argv[1], "-e") == 0){
-    echo_function_enhanced(argc, argv, 2);
+  if(argc > 1){  
+    if(strcmp(argv[1], "-e") == 0){
+      echo_function_enhanced(argc, argv, 2);
   }
   else {
     for(i = 1; i < argc; i++){
@@ -53,6 +53,7 @@ main(int argc, char *argv[])
       }
     }
   }
+}
   
   exit(0);
 }
