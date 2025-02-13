@@ -19,6 +19,11 @@ void echo_function_enhanced(int argc, char *argv[], int start_val){
                   write(1, "\t", 1);
                   j++; 
                   break;
+              case '\\':
+                write(1, "\\", 1);
+                j++;
+              case 'e':
+                j = j + 3;
               default:
                   write(1, &argv[i][j], 1); // if \ just a part of the sentence, no escape sequences 
                   break;
