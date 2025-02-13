@@ -5,7 +5,7 @@
 int main(int argc, char *argv[]) {
   // Sleep requires 2 arguments with the first being sleep itself and the second being the sleep ticks
   if(argc != 2){
-    fprintf(2, "Usage: sleep <ticks>\n");
+    fprintf(2, "missing operand. Usage: sleep [ticks]\n");
     exit(1);
   }
 
