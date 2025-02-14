@@ -80,8 +80,13 @@ void ls(char *path) {
       char mode[11] = "----------";  // Dummy file mode for simplicity
       mode[0] = (st.type == T_DIR) ? 'd' : '-';
       
-      // **Print POSIX-style long format**
-      printf("%s %u ? ? %u ??? %s\n", mode, 1, (uint)st.size, fmtname(path));
+      if (append_symbols) { // **Print POSIX-style long format with -l -F combo**
+        printf("%s %u ? ? %u ??? ", mode, 1, (uint)st.size);
+        append_file_symbol(fmtname(path), st.type);
+      } else { // **Print POSIX-style long format**
+        printf("%s %u ? ? %u ??? %s\n", mode, 1, (uint)st.size, fmtname(path));
+      }
+
     } else if (append_symbols) { // **-F flag: Append file type symbols**
       append_file_symbol(fmtname(path), st.type);
     } else {
@@ -125,8 +130,14 @@ void ls(char *path) {
       } else if (long_format) { // **-l flag: Long format output**
         char mode[11] = "----------";  
         mode[0] = (st.type == T_DIR) ? 'd' : '-';
-        
-        printf("%s %u ? ? %u ??? %s\n", mode, 1, (uint)st.size, fmtname(buf));
+
+        if (append_symbols) { // **Print POSIX-style long format with -l -F combo**
+          printf("%s %u ? ? %u ??? ", mode, 1, (uint)st.size);
+          append_file_symbol(fmtname(buf), st.type);
+        } else { // **Print POSIX-style long format**
+          printf("%s %u ? ? %u ??? %s\n", mode, 1, (uint)st.size, fmtname(buf));
+        }
+
       } else if (append_symbols) { // **-F flag: Append file type symbols**
         append_file_symbol(fmtname(buf), st.type);
       } else {
