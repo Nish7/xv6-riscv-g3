@@ -152,14 +152,14 @@ int main(int argc, char *argv[]) {
       for (int j = 1; argv[i][j] != '\0'; j++) {
         if (argv[i][j] == 'a') show_hidden = 1; // **Enable -a flag**
         else if (argv[i][j] == 'F') append_symbols = 1; // **Enable -F flag**
-        else if (argv[i][j] == 'l') long_format = 1; // **Enable -l flag**
+        else if (argv[i][j] == 'l' && stream_output == 0) long_format = 1; // **Enable -l flag**
         else if (argv[i][j] == 'm') { // **Enable -m flag**
           stream_output = 1;
           long_format = 0; // **-m flag disables -l flag**
         }
       }
     } else {
-      break;
+      break; // finish with flag mode setup, move on to the ls operation
     }
   }
 
