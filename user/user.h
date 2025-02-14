@@ -1,4 +1,5 @@
 struct stat;
+struct uproc;
 
 // system calls
 int fork(void);
@@ -22,6 +23,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int ps(struct uproc*, int);
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -41,3 +43,5 @@ void *memcpy(void *, const void *, uint);
 // umalloc.c
 void* malloc(uint);
 void free(void*);
+
+#define NELEM(x) (sizeof(x)/sizeof((x)[0]))

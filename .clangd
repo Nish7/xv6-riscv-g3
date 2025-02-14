@@ -1,0 +1,4 @@
+CompileFlags:
+  # Assuming your editor opens at project_root/ and "kernel" is right there
+  Add:
+    -I..

@@ -105,3 +105,9 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+struct uproc {
+  int pid;
+  int state; // should we change this to the enum: CONSIDER
+  char name[16];
+};
