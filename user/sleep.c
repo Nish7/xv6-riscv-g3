@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
 	int total_ticks = 0;
 	for (int i = 1; i<argc; i++) {
 		if (!is_positive_int(argv[i])) {
-			fprintf(2, "Sleep: invalid ticks '%s'\n", argv[i]);
+			fprintf(2, "sleep: invalid ticks '%s'\n", argv[i]);
 			exit(1);
 		}
 		total_ticks += atoi(argv[i]);
