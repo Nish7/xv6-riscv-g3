@@ -19,10 +19,10 @@ void echo_function_enhanced(int argc, char *argv[], int start_val){
                   write(1, "\t", 1);
                   j++; 
                   break;
-              case '\\':
+              //case '\\':
                 //write(1, "\\", 1);
                 //j++;
-                break;
+                //break;
               case 'e':
                 j = j + 3;
               default:
