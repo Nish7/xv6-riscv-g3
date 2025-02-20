@@ -6,6 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+extern struct proc proc[NPROC];
+
 uint64
 sys_exit(void)
 {
@@ -90,4 +92,55 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// report process status
+// list all porcess
+uint64
+sys_ps(void)
+{
+  static  char *procstatenames[] = {
+    [UNUSED] = "unused",
+    [USED] = "used",
+    [SLEEPING] = "sleep",
+    [RUNNABLE] = "runble",
+    [RUNNING] = "running",
+    [ZOMBIE] = "zombie"
+  };
+
+  uint64 dst;
+  int max;
+  argaddr(0, &dst);  // sys_call arg; the user-space pointer
+  argint(1, &max);   // sys_call arg; capacity of the array
+
+  struct proc *p;
+  struct uproc u;
+  int count = 0;
+
+  // iterate all processes
+  for (p = proc; p < &proc[NPROC] && count < max; p++) {
+    acquire(&p->lock);
+    if (p->state == UNUSED) {
+      release(&p->lock);
+      continue;
+    }
+
+    // copy the process info to user-space
+    if (p->state >= 0 && p->state < NELEM(procstatenames) &&
+        procstatenames[p->state]) {
+      u.pid = p->pid;
+      u.state = p->state;
+      safestrcpy(u.name, p->name, sizeof(u.name));
+      if (copyout(myproc()->pagetable, dst + count * sizeof(u), (char *)&u,
+                  sizeof(u)) < 0) {
+        release(&p->lock);
+        return -1;
+      }
+      count++;
+    }
+
+    release(&p->lock);
+  }
+
+  return count;
 }
