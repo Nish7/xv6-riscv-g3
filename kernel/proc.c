@@ -465,6 +465,7 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        printf("Scheduling PID %d Priority %d\n", p->pid, p->priority);
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
