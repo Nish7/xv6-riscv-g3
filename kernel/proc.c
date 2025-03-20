@@ -720,6 +720,7 @@ procdump(void)
   }
 }
 
+// Output performance metrics
 uint64 procstat(void)
 {
   struct proc *p;
@@ -760,4 +761,30 @@ uint64 procstat(void)
   }
 
   return 0;
+}
+
+// helper function for getprocstat to retrieve the proc array
+int
+getprocstat_by_pid(int pid, struct procstat *ps)
+{
+  struct proc *p;
+  int found = 0;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->pid == pid) {
+      ps->pid = p->pid;
+      ps->state = p->state;
+      ps->run_time = p->run_time;
+      ps->creation_time = p->creation_time;
+      ps->completion_time = p->completion_time;
+      ps->context_switches = p->context_switches;
+      found = 1;
+      release(&p->lock);
+      break;
+    }
+    release(&p->lock);
+  }
+
+  return found ? 0 : -1;
 }

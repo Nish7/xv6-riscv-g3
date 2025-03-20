@@ -99,3 +99,33 @@ sys_procstat(void)
   // call actual implementation in proc.c
   return procstat();
 }
+
+
+// return the metrics after process completion
+uint64
+sys_getprocstat(void)
+{
+  int pid;
+  uint64 addr;
+  struct procstat ps;
+  
+  // Get arguments - note that these are void functions that set the value
+  // through the pointer, not functions that return a status code
+  argint(0, &pid);
+  argaddr(1, &addr);
+  
+  // Basic input validation
+  if(pid <= 0)
+    return -1;
+    
+  // Get process stats
+  if(getprocstat_by_pid(pid, &ps) < 0)
+    return -1;
+    
+  // Copy to user space
+  if(copyout(myproc()->pagetable, addr, (char *)&ps, sizeof(ps)) < 0)
+    return -1;
+    
+  return 0;
+}
+

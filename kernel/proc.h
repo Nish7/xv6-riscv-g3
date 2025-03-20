@@ -111,3 +111,14 @@ struct proc {
   uint64 run_time;             // Total processing timie
   uint64 context_switches;     // Number of context switches
 };
+
+// Per-process metrics
+struct procstat {
+  int pid;
+  enum procstate state;
+  uint64 creation_time;
+  uint64 completion_time;
+  uint64 run_time;
+  uint64 context_switches;
+};
+
