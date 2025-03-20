@@ -457,24 +457,57 @@ scheduler(void)
     intr_on();
 
     int found = 0;
+    int maximum_priority = 5;
+
+    struct proc *p_next;
+    int last_pid[5] = {-1, -1, -1, -1, -1};
+
+    // Find the highest priority out of all processes
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        printf("Scheduling PID %d Priority %d\n", p->pid, p->priority);
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      if(p->state == RUNNABLE && p->priority < maximum_priority) {
+        maximum_priority = p->priority;
       }
       release(&p->lock);
     }
+
+    // Loop through all processes with the highest priority found above
+    for (p = proc; p < &proc[NPROC]; p++){
+      acquire(&p->lock);
+
+      if (p->priority == maximum_priority && p->state == RUNNABLE){
+        if(last_pid[maximum_priority] == -1 || last_pid[maximum_priority] < p->pid){
+          if (p_next) {
+            release(&p_next->lock);
+          }
+          p_next = p;
+        } else {
+          release(&p->lock);
+        }
+      } else { 
+        release(&p->lock);
+      }
+    }
+
+    if (p_next){
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      last_pid[p_next->priority] = p_next->pid;
+      p_next->state = RUNNING;
+      c->proc = p_next;
+      last_pid[p->priority] = p->pid;
+
+      printf("Scheduling PID %d Priority %d\n", p_next->pid, p_next->priority);
+      swtch(&c->context, &p_next->context);
+      
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+      found = 1;
+      release(&p_next->lock); 
+    }
+
     if(found == 0) {
       // nothing to run; stop running on this core until an interrupt.
       intr_on();
