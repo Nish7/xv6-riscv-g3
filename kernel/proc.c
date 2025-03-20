@@ -443,73 +443,78 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void
-scheduler(void)
-{
-  struct proc *p;
+void scheduler(void) {
   struct cpu *c = mycpu();
+  static int last_pid[5] = {-1, -1, -1, -1, -1};
 
   c->proc = 0;
-  for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting.
+  for (;;) {
     intr_on();
 
     int found = 0;
-    int maximum_priority = 5;
-
-    struct proc *p_next;
-    int last_pid[5] = {-1, -1, -1, -1, -1};
+    int highest_priority = 5;
+    struct proc *p_next = 0;
 
     // Find the highest priority out of all processes
-    for(p = proc; p < &proc[NPROC]; p++) {
+    for (struct proc *p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE && p->priority < maximum_priority) {
-        maximum_priority = p->priority;
-      }
+      if (p->state == RUNNABLE && p->priority < highest_priority)
+        highest_priority = p->priority;
       release(&p->lock);
     }
 
-    // Loop through all processes with the highest priority found above
-    for (p = proc; p < &proc[NPROC]; p++){
-      acquire(&p->lock);
+    // If no RUNNABLE processes, wait for an interrupt
+    if (highest_priority > 4) {
+      intr_on();
+      asm volatile("wfi");
+      continue;
+    }
 
-      if (p->priority == maximum_priority && p->state == RUNNABLE){
-        if(last_pid[maximum_priority] == -1 || last_pid[maximum_priority] < p->pid){
-          if (p_next) {
-            release(&p_next->lock);
-          }
-          p_next = p;
-        } else {
-          release(&p->lock);
-        }
-      } else { 
+    // Find the next process in Round Robin order
+    for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state != RUNNABLE || p->priority != highest_priority) {
         release(&p->lock);
+        continue;
+      }
+      if (last_pid[highest_priority] != -1 &&
+          p->pid <= last_pid[highest_priority]) {
+        release(&p->lock);
+        continue;
+      }
+      if (p_next)
+        release(&p_next->lock);
+      p_next = p;
+    }
+
+    // Wrap around if no process found after last_pid
+    if (!p_next) {
+      last_pid[highest_priority] = -1;
+      for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state != RUNNABLE || p->priority != highest_priority) {
+          release(&p->lock);
+          continue;
+        }
+        if (p_next)
+          release(&p_next->lock);
+        p_next = p;
       }
     }
 
-    if (p_next){
-      // Switch to chosen process.  It is the process's job
-      // to release its lock and then reacquire it
-      // before jumping back to us.
-      last_pid[p_next->priority] = p_next->pid;
+    // Run the selected process
+    if (p_next) {
+      last_pid[highest_priority] = p_next->pid;
       p_next->state = RUNNING;
       c->proc = p_next;
-      last_pid[p->priority] = p->pid;
-
       printf("Scheduling PID %d Priority %d\n", p_next->pid, p_next->priority);
       swtch(&c->context, &p_next->context);
-      
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
       c->proc = 0;
+      release(&p_next->lock);
       found = 1;
-      release(&p_next->lock); 
     }
 
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+    if (!found) {
       intr_on();
       asm volatile("wfi");
     }
