@@ -91,3 +91,11 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// return the process performance metrics
+uint64
+sys_procstat(void)
+{
+  // call actual implementation in proc.c
+  return procstat();
+}

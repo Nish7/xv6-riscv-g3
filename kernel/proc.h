@@ -104,4 +104,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  
+  // These are new process performance metrics
+  uint64 creation_time;        // Process creation time
+  uint64 completion_time;      // Process completion time
+  uint64 run_time;             // Total processing timie
+  uint64 context_switches;     // Number of context switches
 };

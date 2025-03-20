@@ -125,6 +125,12 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // Initialize process metrics from proc.h
+  p->creation_time = r_time();
+  p->completion_time = 0;
+  p->run_time = 0;
+  p->context_switches = 0; 
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -374,6 +380,15 @@ exit(int status)
   wakeup(p->parent);
   
   acquire(&p->lock);
+  
+  // Tracking completion time after:
+  // All resources are freed
+  // Children is given to init
+  // Parent is notified
+  // Process state is locked for protection
+  // And before:
+  // Process is turned into Zombie process
+  p->completion_time = r_time();
 
   p->xstate = status;
   p->state = ZOMBIE;
@@ -446,6 +461,8 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  // Inilize process start time
+  uint64 start_time;
 
   c->proc = 0;
   for(;;){
@@ -462,8 +479,17 @@ scheduler(void)
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
+
+	// Increment context switch counter and initialize start_time to current cpu cycle count
+	p->context_switches++;
+	start_time = r_time();
+	
+	// set cpu to current process, save the old process c context, and load the new process p context
         c->proc = p;
         swtch(&c->context, &p->context);
+
+	// Update the process's runtime from starting till it is switched from context
+	p->run_time += r_time() - start_time;
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
@@ -692,4 +718,46 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64 procstat(void)
+{
+  struct proc *p;
+
+  printf("\nPROCESS PERFORMANCE METRICS:\n");
+  printf("PID  STATE    CS    RUNTIME     CREATION    COMPLETION  TURNAROUND  CPU%%\n");
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      static char *states[] = {
+        [UNUSED]    "unused",
+        [USED]      "used",
+        [SLEEPING]  "sleep ",
+        [RUNNABLE]  "runble",
+        [RUNNING]   "run   ",
+        [ZOMBIE]    "zombie"
+      };
+
+      uint64 turnaround = 0;
+      int cpu_util = 0;
+
+      if(p->completion_time > 0) {
+        turnaround = p->completion_time - p->creation_time;
+      } else if(p->state != UNUSED) {
+        turnaround = r_time() - p->creation_time;
+      }
+
+      if(turnaround > 0) {
+        cpu_util = (p->run_time * 100) / turnaround;
+      }
+
+      printf("%d    %s    %lu      %lu      %lu      %lu      %lu       %d%%\n",
+             p->pid, states[p->state], p->context_switches, p->run_time,
+             p->creation_time, p->completion_time, turnaround, cpu_util);
+    }
+    release(&p->lock);
+  }
+
+  return 0;
 }
