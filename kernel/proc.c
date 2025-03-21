@@ -124,6 +124,13 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority = 2; // default priority; mid-range
+
+  // Initialize process metrics from proc.h
+  p->creation_time = r_time();
+  p->completion_time = 0;
+  p->run_time = 0;
+  p->context_switches = 0; 
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -169,6 +176,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->priority = -1; // reset priority
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -374,6 +382,15 @@ exit(int status)
   wakeup(p->parent);
   
   acquire(&p->lock);
+  
+  // Tracking completion time after:
+  // All resources are freed
+  // Children is given to init
+  // Parent is notified
+  // Process state is locked for protection
+  // And before:
+  // Process is turned into Zombie process
+  p->completion_time = r_time();
 
   p->xstate = status;
   p->state = ZOMBIE;
@@ -441,39 +458,91 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void
-scheduler(void)
-{
-  struct proc *p;
+void scheduler(void) {
   struct cpu *c = mycpu();
+  // Inilize process start time
+  uint64 start_time;
+  static int last_pid[5] = {-1, -1, -1, -1, -1};
 
   c->proc = 0;
-  for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting.
+  for (;;) {
     intr_on();
 
     int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+    int highest_priority = 5;
+    struct proc *p_next = 0;
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
-      }
+    // Find the highest priority out of all processes
+    for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE && p->priority < highest_priority)
+        highest_priority = p->priority;
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+
+    // If no RUNNABLE processes, wait for an interrupt
+    if (highest_priority > 4) {
+      intr_on();
+      asm volatile("wfi");
+      continue;
+    }
+
+    // Find the next process in Round Robin order
+    for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state != RUNNABLE || p->priority != highest_priority) {
+        release(&p->lock);
+        continue;
+      }
+      if (last_pid[highest_priority] != -1 &&
+          p->pid <= last_pid[highest_priority]) {
+        release(&p->lock);
+        continue;
+      }
+      if (p_next)
+        release(&p_next->lock);
+      p_next = p;
+      break;
+    }
+
+    // Wrap around if no process found after last_pid
+    if (!p_next) {
+      last_pid[highest_priority] = -1;
+      for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state != RUNNABLE || p->priority != highest_priority) {
+          release(&p->lock);
+          continue;
+        }
+        if (p_next)
+          release(&p_next->lock);
+        p_next = p;
+        break;
+      }
+    }
+
+    // Run the selected process
+    if (p_next) {
+      last_pid[highest_priority] = p_next->pid;
+      p_next->state = RUNNING;
+      
+      // Increment context switch counter and initialize start_time to current cpu cycle count
+      p_next->context_switches++;
+      start_time = r_time();
+      
+      c->proc = p_next;
+      printf("Scheduling PID %d Priority %d\n", p_next->pid, p_next->priority);
+      swtch(&c->context, &p_next->context);
+      
+      // Update the process's runtime from starting till it is switched from context
+	    p_next->run_time += r_time() - start_time;
+      
+      c->proc = 0;
+      release(&p_next->lock);
+      found = 1;
+    }
+
+    if (!found) {
       intr_on();
       asm volatile("wfi");
     }
@@ -692,4 +761,73 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Output performance metrics
+uint64 procstat(void)
+{
+  struct proc *p;
+
+  printf("\nPROCESS PERFORMANCE METRICS:\n");
+  printf("PID  STATE    CS    RUNTIME     CREATION    COMPLETION  TURNAROUND  CPU%%\n");
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      static char *states[] = {
+        [UNUSED]    "unused",
+        [USED]      "used",
+        [SLEEPING]  "sleep ",
+        [RUNNABLE]  "runble",
+        [RUNNING]   "run   ",
+        [ZOMBIE]    "zombie"
+      };
+
+      uint64 turnaround = 0;
+      int cpu_util = 0;
+
+      if(p->completion_time > 0) {
+        turnaround = p->completion_time - p->creation_time;
+      } else if(p->state != UNUSED) {
+        turnaround = r_time() - p->creation_time;
+      }
+
+      if(turnaround > 0) {
+        cpu_util = (p->run_time * 100) / turnaround;
+      }
+
+      printf("%d    %s    %lu      %lu      %lu      %lu      %lu       %d%%\n",
+             p->pid, states[p->state], p->context_switches, p->run_time,
+             p->creation_time, p->completion_time, turnaround, cpu_util);
+    }
+    release(&p->lock);
+  }
+
+  return 0;
+}
+
+// helper function for getprocstat to retrieve the proc array
+int
+getprocstat_by_pid(int pid, struct procstat *ps)
+{
+  struct proc *p;
+  int found = 0;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->pid == pid) {
+      ps->pid = p->pid;
+      ps->state = p->state;
+      ps->run_time = p->run_time;
+      ps->creation_time = p->creation_time;
+      ps->completion_time = p->completion_time;
+      ps->context_switches = p->context_switches;
+      found = 1;
+      release(&p->lock);
+      break;
+    }
+    release(&p->lock);
+  }
+
+  return found ? 0 : -1;
 }

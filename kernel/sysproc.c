@@ -6,6 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+extern struct proc proc[NPROC];
+
 uint64
 sys_exit(void)
 {
@@ -90,4 +92,69 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// return the process performance metrics
+uint64
+sys_procstat(void)
+{
+  // call actual implementation in proc.c
+  return procstat();
+}
+
+
+// return the metrics after process completion
+uint64
+sys_getprocstat(void)
+{
+  int pid;
+  uint64 addr;
+  struct procstat ps;
+  
+  // Get arguments - note that these are void functions that set the value
+  // through the pointer, not functions that return a status code
+  argint(0, &pid);
+  argaddr(1, &addr);
+  
+  // Basic input validation
+  if(pid <= 0)
+    return -1;
+    
+  // Get process stats
+  if(getprocstat_by_pid(pid, &ps) < 0)
+    return -1;
+    
+  // Copy to user space
+  if(copyout(myproc()->pagetable, addr, (char *)&ps, sizeof(ps)) < 0)
+    return -1;
+    
+  return 0;
+}
+
+uint64 sys_setpriority(void){
+  int pid, priority; 
+  // fetch pid and priority 
+  argint(1, &priority);
+  argint(0, &pid);
+
+  // ensure that pid is valid 
+  if (pid < 0) {
+    return -1;  
+  }
+  // ensure priority is valid 
+  if(priority < 0 || priority > 4){
+    return -1;
+  }
+  // find the process we want to set priority for 
+  for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->pid == pid){
+      p->priority = priority;
+      printf("Changing priority to %d [state=%d]\n", p->priority, p->state);
+      release(&p->lock);
+      return 0; //for success 
+    }
+    release(&p->lock);
+  }
+  return -1; // if some other error occurs 
 }

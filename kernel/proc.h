@@ -91,6 +91,7 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
+  int priority;                // Process Priority (0-4). Default to 2. 0 being the highest and 4 being the lowest.
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
@@ -104,4 +105,21 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  
+  // These are new process performance metrics
+  uint64 creation_time;        // Process creation time
+  uint64 completion_time;      // Process completion time
+  uint64 run_time;             // Total processing timie
+  uint64 context_switches;     // Number of context switches
 };
+
+// Per-process metrics
+struct procstat {
+  int pid;
+  enum procstate state;
+  uint64 creation_time;
+  uint64 completion_time;
+  uint64 run_time;
+  uint64 context_switches;
+};
+
