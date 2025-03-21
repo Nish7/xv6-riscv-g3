@@ -1,63 +1,80 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
+#define MAX_CHILDREN 10
+#define DEFAULT_LOOPS 1000
+
 void busy_loop() {
-    for (int j = 0; j < 1000; j++) {}
+    for (volatile int j = 0; j < DEFAULT_LOOPS; j++) {
+        // Volatile to prevent compiler optimization
+    }
 }
 
-int main() {
-    int pid1, pid2, pid3, pid4;
-
-    printf("Starting priority scheduling test...\n");
-
-    if ((pid1 = fork()) == 0) {
-        printf("Child 1 PID: %d\n", getpid());
-        if (setpriority(getpid(), 4) < 0) {
-            printf("Child 1 failed to set priority to 0\n");
-            exit(1);
-        }
-        busy_loop();
-        printf("Child 1 exiting\n");
-        exit(0);
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("Usage: %s <priority1> <priority2> <priority3> ...\n", argv[0]);
+        printf("Example: %s 4 3 3 1\n", argv[0]);
+        exit(1);
     }
 
-    if ((pid2 = fork()) == 0) {
-        printf("Child 2 PID: %d\n", getpid());
-        if (setpriority(getpid(), 3) < 0) {
-            printf("Child 1 failed to set priority to 0\n");
-            exit(1);
-        }
-        printf("Child 2 set priority to 3\n");
-        while(1) busy_loop();
-        printf("Child 2 exiting\n");
-        exit(0);
+    int num_children = argc - 1;  // Number of priorities provided
+    if (num_children > MAX_CHILDREN) {
+        printf("Error: Maximum %d children allowed\n", MAX_CHILDREN);
+        exit(1);
     }
 
-    if ((pid3 = fork()) == 0) {
-        printf("Child 3 PID: %d\n", getpid());
-        if (setpriority(getpid(), 3) < 0) {
-            printf("Child 1 failed to set priority to 0\n");
+    int priorities[MAX_CHILDREN];
+    
+    for (int i = 0; i < num_children; i++) {
+        priorities[i] = atoi(argv[i + 1]);
+        if (priorities[i] < 0 || priorities[i] > 10) {
+            printf("Error: Priority %d must be between 0 and 10\n", priorities[i]);
             exit(1);
         }
-        printf("Child 3 set priority to 3\n");
-        while(1) busy_loop();
-        printf("Child 3 exiting\n");
-        exit(0);
     }
 
-    if ((pid4 = fork()) == 0) {
-        printf("Child 4 PID: %d\n", getpid());
-        if (setpriority(getpid(), 1) < 0) {
-            printf("Child 4 failed to set priority to 0\n");
+    printf("Starting priority scheduling test with %d children...\n", num_children);
+
+    // Create children
+    for (int i = 0; i < num_children; i++) {
+        int pid = fork();
+        
+        if (pid < 0) {
+            printf("Fork failed for child %d\n", i + 1);
             exit(1);
         }
-        printf("Child 3 set priority to 3\n");
-        while(1) busy_loop();
-        printf("Child 3 exiting\n");
-        exit(0);
+        
+        if (pid == 0) {
+            int current_pid = getpid();
+            printf("Child %d PID: %d\n", i + 1, current_pid);
+            
+            if (setpriority(current_pid, priorities[i]) < 0) {
+                printf("Child %d failed to set priority to %d\n", 
+                       i + 1, priorities[i]);
+                exit(1);
+            }
+            
+            printf("Child %d set priority to %d\n", i + 1, priorities[i]);
+            
+            // First child runs finite loops, others run infinitely
+            if (i == 0) {
+                busy_loop();
+                printf("Child %d exiting\n", i + 1);
+            } else {
+                while (1) {
+                    busy_loop();
+                }
+                printf("Child %d exiting\n", i + 1);  // Unreachable, but kept for consistency
+            }
+            exit(0);
+        }
     }
 
-    for (int i = 0; i < 3; i++) wait(0);
+    // Parent waits for all children
+    for (int i = 0; i < num_children; i++) {
+        wait(0);
+    }
+    
     printf("Test complete, check scheduler output.\n");
     exit(0);
 }
