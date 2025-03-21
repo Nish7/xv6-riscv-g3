@@ -112,7 +112,7 @@ uint64 sys_setpriority(void){
   for (struct proc *p = proc; p < &proc[NPROC]; p++) {
     if(p->pid == pid){
       p->priority = priority;
-      printf("Changing process to %d", p->priority);
+      printf("Changing process to %d\n", p->priority);
       return 0; //for success 
     }
   }
