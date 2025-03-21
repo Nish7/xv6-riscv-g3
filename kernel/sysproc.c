@@ -6,6 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+extern struct proc proc[NPROC];
+
 uint64
 sys_exit(void)
 {
@@ -90,4 +92,29 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64 sys_setpriority(void){
+  int pid, priority; 
+  // fetch pid and priority 
+  argint(1, &priority);
+  argint(0, &pid);
+
+  // ensure that pid is valid 
+  if (pid < 0) {
+    return -1;  
+  }
+  // ensure priority is valid 
+  if(priority < 0 || priority > 4){
+    return -1;
+  }
+  // find the process we want to set priority for 
+  for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+    if(p->pid == pid){
+      p->priority = priority;
+      printf("Changing process to %d", p->priority);
+      return 0; //for success 
+    }
+  }
+  return -1; // if some other error occurs 
 }
