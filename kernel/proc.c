@@ -502,6 +502,7 @@ void scheduler(void) {
       if (p_next)
         release(&p_next->lock);
       p_next = p;
+      break;
     }
 
     // Wrap around if no process found after last_pid
@@ -516,6 +517,7 @@ void scheduler(void) {
         if (p_next)
           release(&p_next->lock);
         p_next = p;
+        break;
       }
     }
 
