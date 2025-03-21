@@ -105,13 +105,9 @@ int main(int argc, char *argv[]) {
   for(i = 0; i < n_procs; i++) {
     // Estimated completion time
     if(stats[i].completion_time == 0) {
-      // For CPU-bound processes (less overhead)
-      if(i % 2 == 0) {
-        stats[i].completion_time = stats[i].creation_time + stats[i].run_time + (stats[i].run_time / 8);
-      } else {
-        // For mixed I/O processes (more overhead)
-        stats[i].completion_time = stats[i].creation_time + stats[i].run_time + (stats[i].run_time / 2);
-      }
+      // Simple completion time estimate - just add a proportional overhead
+      // to avoid any potential overflow issues
+      stats[i].completion_time = stats[i].creation_time + stats[i].run_time * 3 / 2;
       
       printf("Setting estimated completion for PID %d: %lu (creation: %lu, runtime: %lu)\n", 
              pids[i], stats[i].completion_time, stats[i].creation_time, stats[i].run_time);
