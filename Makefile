@@ -140,6 +140,8 @@ UPROGS=\
 	$U/_wc\
 	$U/_prio\
 	$U/_zombie\
+	$U/_procstat\
+	$U/_benchm\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

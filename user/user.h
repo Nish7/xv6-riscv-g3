@@ -22,6 +22,16 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int procstat(void);
+struct procstat {	// Give user program access to the procstat structure
+  int pid;
+  int state;
+  uint64 creation_time;
+  uint64 completion_time;
+  uint64 run_time;
+  uint64 context_switches;
+};
+int getprocstat(int pid, struct procstat*);
 int setpriority(int, int);
 
 // ulib.c
