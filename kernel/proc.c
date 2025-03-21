@@ -124,6 +124,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority = 2; // default priority; mid-range
 
   // Initialize process metrics from proc.h
   p->creation_time = r_time();
@@ -175,6 +176,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->priority = -1; // reset priority
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -456,50 +458,89 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void
-scheduler(void)
-{
-  struct proc *p;
+void scheduler(void) {
   struct cpu *c = mycpu();
   // Inilize process start time
   uint64 start_time;
+  static int last_pid[5] = {-1, -1, -1, -1, -1};
 
   c->proc = 0;
-  for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting.
+  for (;;) {
     intr_on();
 
     int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
+    int highest_priority = 5;
+    struct proc *p_next = 0;
+
+    // Find the highest priority out of all processes
+    for (struct proc *p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-
-	// Increment context switch counter and initialize start_time to current cpu cycle count
-	p->context_switches++;
-	start_time = r_time();
-	
-	// set cpu to current process, save the old process c context, and load the new process p context
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-	// Update the process's runtime from starting till it is switched from context
-	p->run_time += r_time() - start_time;
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
-      }
+      if (p->state == RUNNABLE && p->priority < highest_priority)
+        highest_priority = p->priority;
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+
+    // If no RUNNABLE processes, wait for an interrupt
+    if (highest_priority > 4) {
+      intr_on();
+      asm volatile("wfi");
+      continue;
+    }
+
+    // Find the next process in Round Robin order
+    for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state != RUNNABLE || p->priority != highest_priority) {
+        release(&p->lock);
+        continue;
+      }
+      if (last_pid[highest_priority] != -1 &&
+          p->pid <= last_pid[highest_priority]) {
+        release(&p->lock);
+        continue;
+      }
+      if (p_next)
+        release(&p_next->lock);
+      p_next = p;
+    }
+
+    // Wrap around if no process found after last_pid
+    if (!p_next) {
+      last_pid[highest_priority] = -1;
+      for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state != RUNNABLE || p->priority != highest_priority) {
+          release(&p->lock);
+          continue;
+        }
+        if (p_next)
+          release(&p_next->lock);
+        p_next = p;
+      }
+    }
+
+    // Run the selected process
+    if (p_next) {
+      last_pid[highest_priority] = p_next->pid;
+      p_next->state = RUNNING;
+      
+      // Increment context switch counter and initialize start_time to current cpu cycle count
+      p_next->context_switches++;
+      start_time = r_time();
+      
+      c->proc = p_next;
+      printf("Scheduling PID %d Priority %d\n", p_next->pid, p_next->priority);
+      swtch(&c->context, &p_next->context);
+      
+      // Update the process's runtime from starting till it is switched from context
+	    p_next->run_time += r_time() - start_time;
+      
+      c->proc = 0;
+      release(&p_next->lock);
+      found = 1;
+    }
+
+    if (!found) {
       intr_on();
       asm volatile("wfi");
     }

@@ -32,6 +32,7 @@ struct procstat {	// Give user program access to the procstat structure
   uint64 context_switches;
 };
 int getprocstat(int pid, struct procstat*);
+int setpriority(int, int);
 
 // ulib.c
 int stat(const char*, struct stat*);

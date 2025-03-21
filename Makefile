@@ -138,6 +138,7 @@ UPROGS=\
 	$U/_usertests\
 	$U/_grind\
 	$U/_wc\
+	$U/_prio\
 	$U/_zombie\
 	$U/_procstat\
 	$U/_benchm\
