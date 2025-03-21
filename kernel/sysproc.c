@@ -147,11 +147,14 @@ uint64 sys_setpriority(void){
   }
   // find the process we want to set priority for 
   for (struct proc *p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
     if(p->pid == pid){
       p->priority = priority;
-      printf("Changing process to %d\n", p->priority);
+      printf("Changing priority to %d [state=%d]\n", p->priority, p->state);
+      release(&p->lock);
       return 0; //for success 
     }
+    release(&p->lock);
   }
   return -1; // if some other error occurs 
 }
