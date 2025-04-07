@@ -151,6 +151,7 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
   uint64 pa;
 
   for(i = 0; i < sz; i += PGSIZE){
+    printf("Loading page at VA 0x%lx from file offset 0x%x, size %d\n", va + i, offset + i, PGSIZE);
     pa = walkaddr(pagetable, va + i);
     if(pa == 0)
       panic("loadseg: address should exist");
