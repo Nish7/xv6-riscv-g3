@@ -47,19 +47,7 @@ exec(char *path, char **argv)
     goto bad;
   
   printf("Loading file: %s, inode number: %d\n", path, ip->inum);
-  // printf("type: %d\n", elf.type);
-  // printf("machine: %d\n", elf.machine);
-  // printf("version: %d\n", elf.version);
-  // printf("entry: %lx\n", elf.entry);
-  // printf("phoff: %lx\n", elf.phoff);
-  // printf("shoff: %lx\n", elf.shoff);
-  // printf("flags: %d\n", elf.flags);
-  // printf("ehsize: %d\n", elf.ehsize);
-  // printf("phentsize: %d\n", elf.phentsize);
   printf("phnum: %d\n", elf.phnum);
-  // printf("shentsize: %d\n", elf.shentsize);
-  // printf("shnum: %d\n", elf.shnum);
-  // printf("shstrndx: %d\n", elf.shstrndx);
 
   if(elf.magic != ELF_MAGIC)
     goto bad;
@@ -71,15 +59,6 @@ exec(char *path, char **argv)
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
-    
-    // printf("------\n");
-    // printf("Vaddr: %lx\n", ph.vaddr);
-    // printf("Type: %d\n", ph.type);
-    // printf("Off: %lx\n", ph.off);
-    // printf("Filesz: %ld\n", ph.filesz);
-    // printf("Memsz: %ld\n", ph.memsz);
-    // printf("Flags: %d\n", ph.flags);
-    // printf("Align: %lx\n", ph.align);
     
     if(ph.type != ELF_PROG_LOAD)
       continue;
@@ -226,12 +205,7 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
         return -1;
       }
     } else {
-      // For demand paging, we should store:
-      // 1. File offset
-      // 2. Size to read
-      // 3. inode number (for reopening)
-      
-      // Create metadata: pack file info into 64 bits
+      // Demand Paging metadata: pack file info into 64 bits
       // Format: [inum(16bits)][size(16bits)][offset(32bits)]
       uint64 metadata = ((uint64)ip->inum << 48) | ((uint64)n << 32) | (offset + i);
       printf("Demand Paging with the virtual address: %lx and metadata: %lx\n", va + i, metadata);
