@@ -384,10 +384,16 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     va0 = PGROUNDDOWN(dstva);
     if(va0 >= MAXVA)
       return -1;
+    // Try to handle demand paging if needed
+    if(handledemandp(pagetable, va0) != 0) {
+      // Not demand-paged or failed to load, check validity normally
+      pte = walk(pagetable, va0, 0);
+      if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 || (*pte & PTE_W) == 0)
+        return -1;
+    }
+    
+    // Get the physical address (which now should be valid)
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
-      return -1;
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -467,4 +473,71 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int
+handledemandp(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    return -1;
+    
+  if((*pte & PTE_D) && !(*pte & PTE_V)) {
+    void *pa = kalloc();
+    if(pa == 0)
+      return -1;
+      
+    memset(pa, 0, PGSIZE);
+    
+    uint64 metadata = *pte & ~0xFFF; // Remove flags
+    
+    if(metadata == 0) {
+      // For .bss, we just need to map the zeroed page
+      int perm = PTE_FLAGS(*pte) & ~PTE_D; 
+      perm |= PTE_V | PTE_W | PTE_R; 
+      *pte = PA2PTE((uint64)pa) | perm | PTE_U;
+      
+      printf("Zero-initialized page loaded at address %lx\n", va);
+    } else {
+      uint16 inum = metadata >> 48;
+      uint16 size = (metadata >> 32) & 0xFFFF;
+      uint32 offset = metadata & 0xFFFFFFFF;
+      
+      // Retrieve file permissions stored in the PTE
+      int perm = PTE_FLAGS(*pte) & ~PTE_D; // Remove demand flag
+      perm |= PTE_V | PTE_R | PTE_X | PTE_W;
+      
+      // Load the page from disk
+      begin_op();
+      struct inode *ip = iget(ROOTDEV, inum);
+      if(ip == 0) {
+        kfree(pa);
+        end_op();
+        printf("handle_demand_page(): failed to open inode %d\n", inum);
+        return -1;
+      }
+      
+      ilock(ip);
+      
+      // Read the file data into the page
+      if(readi(ip, 0, (uint64)pa, offset, size) != size) {
+        kfree(pa);
+        iunlockput(ip);
+        end_op();
+        printf("handle_demand_page(): failed to read file data\n");
+        return -1;
+      }
+      
+      iunlockput(ip);
+      end_op();
+      
+      *pte = PA2PTE((uint64)pa) | perm | PTE_U;
+      
+      printf("Demand-paged address %lx loaded from file (inode=%d offset=0x%x size=%d)\n", va, inum, offset, size); 
+    }
+    
+    return 0;
+  }
+  
+  return -1;
 }

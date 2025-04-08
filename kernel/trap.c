@@ -82,92 +82,14 @@ usertrap(void)
       setkilled(p);
       goto end_trap;
     }
-    
-    // See if this is a page marked for demand paging
-    pte_t *pte = walk(p->pagetable, page_aligned_va, 0);
-    if(pte == 0) {
-      printf("usertrap(): page not found in page table %lx\n", va);
-      printf("            sepc=%lx pid=%d\n", r_sepc(), p->pid);
-      setkilled(p);
-      goto end_trap;
-    }
-    
-    printf("pte=%lx pte_flags=%lx\n", *pte, PTE_FLAGS(*pte));
-    
-    // Check if this is a demand-paged entry (PTE_D flag set but PTE_V not set)
-    if((*pte & PTE_D) && !(*pte & PTE_V)) {
-      void *pa = kalloc();
-      if(pa == 0) {
-        printf("usertrap(): kalloc failed for demand paging\n");
-        setkilled(p);
-        goto end_trap;
-      }
-      
-      memset(pa, 0, PGSIZE);
-      
-      uint64 metadata = *pte & ~0xFFF; // Remove flags
-      
-      if(metadata == 0) {
-         // For .bss, we just need to map the zeroed page
-         int perm = PTE_FLAGS(*pte) & ~PTE_D; 
-         perm |= PTE_V | PTE_W | PTE_R; 
-         *pte = PA2PTE((uint64)pa) | perm | PTE_U;
-         
-         printf("Zero-initialized page loaded at address %lx\n", page_aligned_va);
-      } else {
-        uint16 inum = metadata >> 48;
-        uint16 size = (metadata >> 32) & 0xFFFF;
-        uint32 offset = metadata & 0xFFFFFFFF;
-        
-        // Retrieve file permissions stored in the PTE
-        int perm = PTE_FLAGS(*pte) & ~PTE_D; // Remove demand flag
-        perm |= PTE_V | PTE_R | PTE_X; // Mark as valid, readable, executable
-        
-        // Load the page from disk
-        begin_op();
-        struct inode *ip = iget(ROOTDEV, inum);
-        if(ip == 0) {
-          kfree(pa);
-          end_op();
-          printf("usertrap(): failed to open inode %d\n", inum);
-          setkilled(p);
-          goto end_trap;
-        }
-        
-        ilock(ip);
-        
-        // Read the file data into the page
-        if(readi(ip, 0, (uint64)pa, offset, size) != size) {
-          kfree(pa);
-          iunlockput(ip);
-          end_op();
-          printf("usertrap(): failed to read file data\n");
-          setkilled(p);
-          goto end_trap;
-        }
-        
-        iunlockput(ip);
-        end_op();
-        
-        // Update the page table entry with the new physical page
-        *pte = PA2PTE((uint64)pa) | perm | PTE_U;
-        
-        // Done - when we return, the process will retry the access
-        printf("Demand-paged address %lx loaded from file (inode=%d offset=0x%x size=%d)\n", 
-               page_aligned_va, inum, offset, size); 
-      }
-      
-    } else {
+
+    // Try to handle as a demand-paged fault
+    if (handledemandp(p->pagetable, page_aligned_va) == -1) {
       // Not a demand-paged entry or some other kind of page fault
       printf("usertrap(): unexpected page fault at %lx\n", va);
-      printf("            scause=%ld sepc=%ld pid=%d\n", r_scause(), r_sepc(), p->pid);
-      printf("            pte=%lx pte_flags=%lx\n", *pte, PTE_FLAGS(*pte));
+      printf("            scause=%ld sepc=%ld pid=%d\n", r_scause(), r_sepc(),p->pid);
       setkilled(p);
     }
-  } else {
-    printf("usertrap(): unexpected scause 0x%ld pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
-    setkilled(p);
   }
 
 end_trap:
