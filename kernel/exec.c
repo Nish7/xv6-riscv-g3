@@ -124,12 +124,12 @@ exec(char *path, char **argv)
   // Make the first inaccessible as a stack guard.
   // Use the rest as the user stack.
   sz = PGROUNDUP(sz);
-  printf("\nSize: %ld\n", sz);
+  printf("Size: %ld\n", sz);
   uint64 sz1;
   if((sz1 = uvmalloc(pagetable, sz, sz + (USERSTACK+1)*PGSIZE, PTE_W)) == 0)
     goto bad;
   sz = sz1;
-  printf("\nStack Size: %ld\n", sz);
+  printf("Stack Size: %ld\n", sz);
   uvmclear(pagetable, sz-(USERSTACK+1)*PGSIZE);
   sp = sz;
   stackbase = sp - USERSTACK*PGSIZE;
