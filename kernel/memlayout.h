@@ -38,6 +38,9 @@
 // from physical address 0x80000000 to PHYSTOP.
 #define KERNBASE 0x80000000L
 #define PHYSTOP (KERNBASE + 128*1024*1024)
+#define TEXTBASE      0x1000        // Start of text segment
+#define TEXTSIZE      0x100000      // Size of text segment (1MB)
+#define USTACKTOP     TRAPFRAME     // Top of
 
 // map the trampoline page to the highest address,
 // in both user and kernel space.

@@ -6,6 +6,9 @@
 #include "proc.h"
 #include "defs.h"
 #include "elf.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 static int loadseg(pde_t *, uint64, struct inode *, uint, uint);
 
@@ -42,6 +45,21 @@ exec(char *path, char **argv)
   // Check ELF header
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
+  
+  printf("Loading file: %s, inode number: %d\n", path, ip->inum);
+  // printf("type: %d\n", elf.type);
+  // printf("machine: %d\n", elf.machine);
+  // printf("version: %d\n", elf.version);
+  // printf("entry: %lx\n", elf.entry);
+  // printf("phoff: %lx\n", elf.phoff);
+  // printf("shoff: %lx\n", elf.shoff);
+  // printf("flags: %d\n", elf.flags);
+  // printf("ehsize: %d\n", elf.ehsize);
+  // printf("phentsize: %d\n", elf.phentsize);
+  printf("phnum: %d\n", elf.phnum);
+  // printf("shentsize: %d\n", elf.shentsize);
+  // printf("shnum: %d\n", elf.shnum);
+  // printf("shstrndx: %d\n", elf.shstrndx);
 
   if(elf.magic != ELF_MAGIC)
     goto bad;
@@ -53,6 +71,16 @@ exec(char *path, char **argv)
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
+    
+    // printf("------\n");
+    // printf("Vaddr: %lx\n", ph.vaddr);
+    // printf("Type: %d\n", ph.type);
+    // printf("Off: %lx\n", ph.off);
+    // printf("Filesz: %ld\n", ph.filesz);
+    // printf("Memsz: %ld\n", ph.memsz);
+    // printf("Flags: %d\n", ph.flags);
+    // printf("Align: %lx\n", ph.align);
+    
     if(ph.type != ELF_PROG_LOAD)
       continue;
     if(ph.memsz < ph.filesz)
@@ -61,13 +89,30 @@ exec(char *path, char **argv)
       goto bad;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
-    uint64 sz1;
-    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0)
+    
+    uint64 new_sz = PGROUNDUP(ph.vaddr + ph.memsz);
+    if (new_sz > sz){
+      sz = new_sz;
+    }
+    
+    if (loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0) {
       goto bad;
-    sz = sz1;
-    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
-      goto bad;
+    } 
+    
+    if (ph.memsz > 0 && ph.filesz == 0) {
+      uint64 bss_start = ph.vaddr + ph.filesz; // Start of .bss
+      uint64 bss_size = ph.memsz - ph.filesz;  // Size of .bss
+      printf("Marking .bss from VA 0x%lx to 0x%lx for demand paging\n", bss_start, bss_start + bss_size);
+  
+      // Mark each page in the .bss range as demand-paged
+      for (uint64 va = PGROUNDDOWN(bss_start); va < PGROUNDUP(bss_start + bss_size); va += PGSIZE) {
+        if (mappages(pagetable, va, PGSIZE, 0, PTE_U | PTE_D) != 0) { // Mark as demand-paged, no physical page yet
+          goto bad;
+        }
+      }
+    }
   }
+
   iunlockput(ip);
   end_op();
   ip = 0;
@@ -79,10 +124,12 @@ exec(char *path, char **argv)
   // Make the first inaccessible as a stack guard.
   // Use the rest as the user stack.
   sz = PGROUNDUP(sz);
+  printf("\nSize: %ld\n", sz);
   uint64 sz1;
   if((sz1 = uvmalloc(pagetable, sz, sz + (USERSTACK+1)*PGSIZE, PTE_W)) == 0)
     goto bad;
   sz = sz1;
+  printf("\nStack Size: %ld\n", sz);
   uvmclear(pagetable, sz-(USERSTACK+1)*PGSIZE);
   sp = sz;
   stackbase = sp - USERSTACK*PGSIZE;
@@ -151,16 +198,49 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
   uint64 pa;
 
   for(i = 0; i < sz; i += PGSIZE){
-    printf("Loading page at VA 0x%lx from file offset 0x%x, size %d\n", va + i, offset + i, PGSIZE);
-    pa = walkaddr(pagetable, va + i);
-    if(pa == 0)
-      panic("loadseg: address should exist");
+    // Calculate how many bytes to load - might be less than PGSIZE at the end
     if(sz - i < PGSIZE)
       n = sz - i;
     else
       n = PGSIZE;
-    if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
-      return -1;
+
+    printf("Loading page at VA 0x%lx from file offset 0x%x, size %d\n", va + i, offset + i, n);
+   
+    int is_essential = ((va + i) >= TEXTBASE && (va + i) < TEXTBASE + TEXTSIZE) || 
+                       ((va + i) >= USTACKTOP - PGSIZE && (va + i) < USTACKTOP);
+
+    if (is_essential) {
+      printf("Loading Eagerly at VA 0x%lx\n", va + i);
+      // Load eagerly (current behavior)
+      pa = (uint64)kalloc();
+      if (pa == 0)
+        return -1;
+      memset((void *)pa, 0, PGSIZE);
+     
+      if (readi(ip, 0, (uint64)pa, offset + i, n) != n) {
+        kfree((void *)pa);
+        return -1;
+      }
+      if (mappages(pagetable, va + i, PGSIZE, pa, PTE_R | PTE_X | PTE_U | PTE_W) != 0) {
+        kfree((void *)pa);
+        return -1;
+      }
+    } else {
+      // For demand paging, we should store:
+      // 1. File offset
+      // 2. Size to read
+      // 3. inode number (for reopening)
+      
+      // Create metadata: pack file info into 64 bits
+      // Format: [inum(16bits)][size(16bits)][offset(32bits)]
+      uint64 metadata = ((uint64)ip->inum << 48) | ((uint64)n << 32) | (offset + i);
+      printf("Demand Paging with the virtual address: %lx and metadata: %lx\n", va + i, metadata);
+      
+      // Mark as demand-paged (use PTE_D flag but no PTE_V)
+      if (mappages(pagetable, va + i, PGSIZE, metadata, PTE_U | PTE_D) != 0) {
+        return -1;
+      }
+    }
   }
   
   return 0;

@@ -162,7 +162,13 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
       return -1;
     if(*pte & PTE_V)
       panic("mappages: remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
+
+    if (perm & PTE_D) {  // Demand-paged page
+      *pte = pa | perm; // Store file offset in pa, set demand-paged flag
+    } else {
+      *pte = PA2PTE(pa) | perm | PTE_V; // Normal mapping (eager load)
+    }
+
     if(a == last)
       break;
     a += PGSIZE;
@@ -186,13 +192,15 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+    if((*pte & PTE_V) == 0 && (*pte & PTE_D) == 0)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      if (*pte & PTE_V) {
+        uint64 pa = PTE2PA(*pte);
+        kfree((void*)pa);
+      }
     }
     *pte = 0;
   }
@@ -320,6 +328,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
+    
+    // Handle demand-paged entries
+    if((*pte & PTE_V) == 0 && (*pte & PTE_D)) {
+      // This is a demand-paged entry - copy as is
+      uint64 metadata = *pte & ~0xFFF; // Save the metadata
+      flags = PTE_FLAGS(*pte);
+      if(mappages(new, i, PGSIZE, metadata, flags) != 0)
+        goto err;
+      continue; // Skip the normal page handling
+    }
+    
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);

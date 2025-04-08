@@ -39,6 +39,7 @@ void            fsinit(int);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);
+struct inode *iget(uint dev, uint inum);
 struct inode*   idup(struct inode*);
 void            iinit();
 void            ilock(struct inode*);
