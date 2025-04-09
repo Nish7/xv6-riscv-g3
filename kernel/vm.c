@@ -162,7 +162,13 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
       return -1;
     if(*pte & PTE_V)
       panic("mappages: remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
+
+    if (perm & PTE_D) {  // Demand-paged page
+      *pte = pa | perm; // Store file offset in pa, set demand-paged flag
+    } else {
+      *pte = PA2PTE(pa) | perm | PTE_V; // Normal mapping (eager load)
+    }
+
     if(a == last)
       break;
     a += PGSIZE;
@@ -183,16 +189,19 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
+  // Pull mappings from page table
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+    if((*pte & PTE_V) == 0 && (*pte & PTE_D) == 0)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      if (*pte & PTE_V) {
+        uint64 pa = PTE2PA(*pte);
+        kfree((void*)pa);
+      }
     }
     *pte = 0;
   }
@@ -320,6 +329,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
+    
+    // Handle demand-paged entries
+    if((*pte & PTE_V) == 0 && (*pte & PTE_D)) {
+      // This is a demand-paged entry - copy as is
+      uint64 metadata = *pte & ~0xFFF; // Save the metadata
+      flags = PTE_FLAGS(*pte);
+      if(mappages(new, i, PGSIZE, metadata, flags) != 0)
+        goto err;
+      continue; // Skip the normal page handling
+    }
+    
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
@@ -365,10 +385,16 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     va0 = PGROUNDDOWN(dstva);
     if(va0 >= MAXVA)
       return -1;
+    // Try to handle demand paging if needed
+    if(handledemandp(pagetable, va0) != 0) {
+      // Not demand-paged or failed to load, check validity normally
+      pte = walk(pagetable, va0, 0);
+      if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 || (*pte & PTE_W) == 0)
+        return -1;
+    }
+    
+    // Get the physical address (which now should be valid)
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
-      return -1;
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -448,4 +474,74 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// Handle demand paging for a virtual addres va
+// If va is makred for demand paging then physical memory will be allocated,
+// then the page content is loaded and the page table entry is updated.
+int
+handledemandp(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0)
+    return -1;
+    
+  if((*pte & PTE_D) && !(*pte & PTE_V)) {
+    void *pa = kalloc();
+    if(pa == 0)
+      return -1;
+      
+    memset(pa, 0, PGSIZE);
+    
+    uint64 metadata = *pte & ~0xFFF; // Remove flags
+    
+    if(metadata == 0) {
+      // For .bss, we just need to map the zeroed page
+      int perm = PTE_FLAGS(*pte) & ~PTE_D; 
+      perm |= PTE_V | PTE_W | PTE_R; 
+      *pte = PA2PTE((uint64)pa) | perm | PTE_U;
+      
+      printf("Zero-initialized page loaded at address %lx\n", va);
+    } else {
+      uint16 inum = metadata >> 48;
+      uint16 size = (metadata >> 32) & 0xFFFF;
+      uint32 offset = metadata & 0xFFFFFFFF;
+      
+      // Retrieve file permissions stored in the PTE
+      int perm = PTE_FLAGS(*pte) & ~PTE_D; // Remove demand flag
+      perm |= PTE_V | PTE_R | PTE_X | PTE_W;
+      
+      // Load the page from disk
+      begin_op();
+      struct inode *ip = iget(ROOTDEV, inum);
+      if(ip == 0) {
+        kfree(pa);
+        end_op();
+        printf("handle_demand_page(): failed to open inode %d\n", inum);
+        return -1;
+      }
+      
+      ilock(ip);
+      
+      // Read the file data into the page
+      if(readi(ip, 0, (uint64)pa, offset, size) != size) {
+        kfree(pa);
+        iunlockput(ip);
+        end_op();
+        printf("handle_demand_page(): failed to read file data\n");
+        return -1;
+      }
+      
+      iunlockput(ip);
+      end_op();
+      
+      *pte = PA2PTE((uint64)pa) | perm | PTE_U;
+      
+      printf("Demand-paged address %lx loaded from file (inode=%d offset=0x%x size=%d)\n", va, inum, offset, size); 
+    }
+    
+    return 0;
+  }
+  
+  return -1;
 }

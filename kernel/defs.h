@@ -39,6 +39,7 @@ void            fsinit(int);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);
+struct inode *iget(uint dev, uint inum);
 struct inode*   idup(struct inode*);
 void            iinit();
 void            ilock(struct inode*);
@@ -173,6 +174,7 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             handledemandp(pagetable_t pagetable, uint64 va);
 
 // plic.c
 void            plicinit(void);

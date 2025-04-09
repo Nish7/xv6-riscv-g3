@@ -5,9 +5,12 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fs.h"
 
 struct spinlock tickslock;
 uint ticks;
+
+extern struct inode *iget(uint dev, uint inum);
 
 extern char trampoline[], uservec[], userret[];
 
@@ -67,12 +70,29 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
-    printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
-    setkilled(p);
+  } else if(r_scause() == 12 || r_scause() == 13 || r_scause() == 15) {
+    uint64 va = r_stval(); // Get the faulting virtual address
+    uint64 page_aligned_va = PGROUNDDOWN(va);
+    printf("Page fault at virtual address %lx\n", page_aligned_va);
+    
+    // Check if the address is valid
+    if(va >= p->sz) {
+      printf("usertrap(): invalid virtual address %lx\n", va);
+      printf("            sepc=%lx pid=%d sz=%ld\n", r_sepc(), p->pid, p->sz);
+      setkilled(p);
+      goto end_trap;
+    }
+
+    // Try to handle as a demand-paged fault
+    if (handledemandp(p->pagetable, page_aligned_va) == -1) {
+      // Not a demand-paged entry or some other kind of page fault
+      printf("usertrap(): unexpected page fault at %lx\n", va);
+      printf("            scause=%ld sepc=%ld pid=%d\n", r_scause(), r_sepc(),p->pid);
+      setkilled(p);
+    }
   }
 
+end_trap:
   if(killed(p))
     exit(-1);
 
