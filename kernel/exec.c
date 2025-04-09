@@ -69,15 +69,18 @@ exec(char *path, char **argv)
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
     
+    // Calculate required memory
     uint64 new_sz = PGROUNDUP(ph.vaddr + ph.memsz);
     if (new_sz > sz){
       sz = new_sz;
     }
     
+    // Attempt to load segment into memory; handle errors on failure
     if (loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0) {
       goto bad;
     } 
     
+    // Set up page table entries for BSS (Block Started by Symbol)
     if (ph.memsz > 0 && ph.filesz == 0) {
       uint64 bss_start = ph.vaddr + ph.filesz; // Start of .bss
       uint64 bss_size = ph.memsz - ph.filesz;  // Size of .bss
@@ -185,6 +188,7 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
 
     printf("Loading page at VA 0x%lx from file offset 0x%x, size %d\n", va + i, offset + i, n);
    
+    // Determine if the page of memory is "essential" for immediate execution.
     int is_essential = ((va + i) >= TEXTBASE && (va + i) < TEXTBASE + TEXTSIZE) || 
                        ((va + i) >= USTACKTOP - PGSIZE && (va + i) < USTACKTOP);
 
