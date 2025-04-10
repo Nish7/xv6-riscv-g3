@@ -75,6 +75,7 @@ usertrap(void)
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
 
+    printf("usertrap(): page fault caused by write on read-only file 0x%lx pid=%d\n", r_scause(), p->pid);
     if(pte && (*pte & PTE_V) && (*pte & PTE_COW) && !(*pte & PTE_W)) {
       // Allocate a new page
       char *mem = kalloc();
