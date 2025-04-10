@@ -65,6 +65,37 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 15) {
+    //exception code 15 means page fault; which was caused by write
+    
+    uint64 va = PGROUNDDOWN(r_stval());
+    pte_t *pte;
+  
+    pte = walk(p->pagetable, va, 0);
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+
+    if(pte && (*pte & PTE_V) && (*pte & PTE_COW) && !(*pte & PTE_W)) {
+      // Allocate a new page
+      char *mem = kalloc();
+      if (mem == 0) {
+          // Handle allocation failure
+          setkilled(p);
+          return;
+      }
+      memmove(mem, (char*)pa, PGSIZE);
+      flags |= PTE_W;
+      flags &= ~(PTE_COW);
+      
+      *pte = PA2PTE((uint64)mem) | flags;
+
+      decref(pa);
+
+      // Flush the TLB for the updated page
+      sfence_vma();
+    }
+
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
