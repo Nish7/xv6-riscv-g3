@@ -10,6 +10,8 @@
 #include "defs.h"
 
 void freerange(void *pa_start, void *pa_end);
+void incref(uint64 pa);
+void decref(uint64 pa);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -30,7 +32,7 @@ kinit()
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
   for (int i = 0; i < (PHYSTOP / PGSIZE); i++) 
-    refcount[i] = 0;
+    kmem.refcount[i] = 0;
 }
 
 void
@@ -83,12 +85,15 @@ kalloc(void)
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
-  release(&kmem.lock);
+  
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
     int index = ((uint64)r) / PGSIZE;
     kmem.refcount[index] = 1;
+  }
+  
+  release(&kmem.lock);
   return (void*)r;
 }
 
@@ -106,7 +111,11 @@ decref(uint64 pa)
 {
   int index = pa / PGSIZE;
   acquire(&kmem.lock);
-  if (--kmem.refcount[index] == 0)
+  if (--kmem.refcount[index] == 0){
+    release(&kmem.lock);
     kfree((void*)pa);
+    return;
+  }
+    
   release(&kmem.lock);
 }

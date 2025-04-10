@@ -70,28 +70,40 @@ usertrap(void)
     
     uint64 va = PGROUNDDOWN(r_stval());
     pte_t *pte;
+    uint64 pa;
+    uint flags;
   
-    pte = walk(p->pagetable, va, 0);
+    printf("usertrap(): page fault caused by write on read-only file 0x%lx pid=%d\n", r_scause(), p->pid);
+    
+    if((pte = walk(p->pagetable, va, 0)) == 0)
+      panic("usertrap: pte not found");
+
+    if((*pte & PTE_V) == 0)
+      panic("usertrap: page not present");
+
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
 
-    printf("usertrap(): page fault caused by write on read-only file 0x%lx pid=%d\n", r_scause(), p->pid);
-    if(pte && (*pte & PTE_V) && (*pte & PTE_COW) && !(*pte & PTE_W)) {
+    if((*pte & PTE_COW) && !(*pte & PTE_W)) {
+      printf("Handling COW page fault at address: %ld\n", va);
       // Allocate a new page
       char *mem = kalloc();
       if (mem == 0) {
           // Handle allocation failure
+          printf("kalloc failed\n");
           setkilled(p);
           return;
       }
       memmove(mem, (char*)pa, PGSIZE);
       flags |= PTE_W;
       flags &= ~(PTE_COW);
+      flags |= PTE_V;
       
       *pte = PA2PTE((uint64)mem) | flags;
 
       decref(pa);
 
+      printf("completed creating new page for writing for page fault at address: %ld\n", va);
       // Flush the TLB for the updated page
       sfence_vma();
     }
