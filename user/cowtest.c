@@ -18,7 +18,7 @@ void test_cow() {
     exit(1);
   } else if (pid == 0) {
     // Child process
-    printf("Child reads before write: %c \n", (char )*mem); // Should be 'A'
+    printf("Child reads before write: %s \n", mem); // Should be 'A'
     *mem = 'B'; // Write to shared page
     printf("Child wrote: B \n");
     printf("Memory address: %p\n", mem);
@@ -49,15 +49,15 @@ void test_multiple_writes() {
     exit(1);
   } else if (pid == 0) {
     // Child process
-    printf("Child reads before writes: %c \n", (char )*mem);
+    printf("Child reads before writes: %s \n", mem);
     *mem = 'B'; // First write
     *(mem + 1) = 'C'; // Second write
-    printf("Child wrote: %c %c \n", *mem, *(mem + 1));
+    printf("Child wrote: %s %s \n", mem, (char *)(mem + 1));
     exit(0);
   } else {
     // Parent process
     wait(0);
-    printf("Parent reads: %c %c \n", *mem, *(mem + 1)); // Should be unchanged
+    printf("Parent reads: %s %s \n", mem, (char *)(mem + 1)); // Should be unchanged
   }
 }
 
@@ -71,13 +71,13 @@ void test_page_fault_handling() {
     // Child process
     char *mem = sbrk(PGSIZE);
     *mem = 'E'; // Write to shared page
-    printf("Child wrote: %c\n", *mem);
+    printf("Child wrote: %s\n", mem);
     exit(0);
   } else {
     // Parent process
     wait(0);
     char *mem = sbrk(PGSIZE);
-    printf("Parent reads: %c\n", *mem); // Should be unchanged
+    printf("Parent reads: %s\n", mem); // Should be unchanged
   }
 }
 
