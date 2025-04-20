@@ -10,6 +10,8 @@
 #include "defs.h"
 
 void freerange(void *pa_start, void *pa_end);
+void incref(uint64 pa);
+void decref(uint64 pa);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -21,6 +23,7 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  int refcount[PHYSTOP / PGSIZE];
 } kmem;
 
 void
@@ -28,6 +31,8 @@ kinit()
 {
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
+  for (int i = 0; i < (PHYSTOP / PGSIZE); i++) 
+    kmem.refcount[i] = 0;
 }
 
 void
@@ -51,12 +56,18 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  int index = ((uint64)pa) / PGSIZE;
+  acquire(&kmem.lock);
+  if (--kmem.refcount[index] > 0) {
+    release(&kmem.lock);
+    return;
+  }
+
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
@@ -74,9 +85,37 @@ kalloc(void)
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
-  release(&kmem.lock);
+  
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    int index = ((uint64)r) / PGSIZE;
+    kmem.refcount[index] = 1;
+  }
+  
+  release(&kmem.lock);
   return (void*)r;
+}
+
+void 
+incref(uint64 pa)
+{
+  int index = pa / PGSIZE;
+  acquire(&kmem.lock);
+  kmem.refcount[index]++;
+  release(&kmem.lock);
+}
+
+void 
+decref(uint64 pa)
+{
+  int index = pa / PGSIZE;
+  acquire(&kmem.lock);
+  if (--kmem.refcount[index] == 0){
+    release(&kmem.lock);
+    kfree((void*)pa);
+    return;
+  }
+    
+  release(&kmem.lock);
 }
